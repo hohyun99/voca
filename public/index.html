@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>단어 테스트</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1f2937;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 560px;
+      padding: 16px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 40px 36px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+
+    .card-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 6px;
+    }
+
+    .card-sub {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 28px;
+    }
+
+    /* ── Upload ── */
+    .drop-zone {
+      border: 2px dashed #d1d5db;
+      border-radius: 14px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #6366f1;
+      background: #f5f3ff;
+    }
+
+    .drop-zone .icon { font-size: 48px; margin-bottom: 12px; }
+    .drop-zone p { color: #6b7280; font-size: 15px; }
+    .drop-zone strong { color: #6366f1; }
+
+    #preview-img {
+      width: 100%;
+      border-radius: 10px;
+      margin-top: 16px;
+      display: none;
+    }
+
+    /* ── Loading ── */
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 32px auto;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text { text-align: center; color: #6b7280; font-size: 15px; }
+
+    /* ── Word list ── */
+    .word-count-badge {
+      display: inline-block;
+      background: #ede9fe;
+      color: #6d28d9;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+
+    .word-list {
+      list-style: none;
+      max-height: 360px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+    }
+
+    .word-list li {
+      padding: 12px 16px;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .word-list li:last-child { border-bottom: none; }
+    .word-list li strong { color: #4f46e5; }
+
+    /* ── Progress ── */
+    .progress-bar-wrap {
+      background: #e5e7eb;
+      border-radius: 99px;
+      height: 6px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: #6366f1;
+      border-radius: 99px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+
+    .progress-label {
+      font-size: 13px;
+      color: #9ca3af;
+      text-align: right;
+      margin-bottom: 32px;
+    }
+
+    /* ── Quiz ── */
+    .definition-box {
+      background: #f9fafb;
+      border-radius: 14px;
+      padding: 28px 24px;
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 32px;
+    }
+
+    .definition-text {
+      font-size: 20px;
+      line-height: 1.6;
+      text-align: center;
+      color: #111827;
+    }
+
+    .mic-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mic-btn {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      border: none;
+      background: #6366f1;
+      color: #fff;
+      font-size: 32px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      position: relative;
+    }
+
+    .mic-btn:hover { background: #4f46e5; }
+    .mic-btn:active { transform: scale(0.96); }
+
+    .mic-btn.listening {
+      background: #ef4444;
+      animation: mic-pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
+    }
+
+    .mic-hint { font-size: 13px; color: #9ca3af; }
+
+    .transcript-box {
+      margin-top: 20px;
+      min-height: 44px;
+      padding: 10px 16px;
+      background: #f3f4f6;
+      border-radius: 10px;
+      font-size: 15px;
+      color: #374151;
+      text-align: center;
+      font-style: italic;
+    }
+
+    /* ── Feedback ── */
+    .feedback-bar {
+      margin-top: 20px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
+      display: none;
+    }
+
+    .feedback-bar.correct {
+      display: block;
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .feedback-bar.wrong {
+      display: block;
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    /* ── Results ── */
+    .result-score {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .result-score .big-num {
+      font-size: 64px;
+      font-weight: 800;
+      color: #6366f1;
+      line-height: 1;
+    }
+
+    .result-score p { color: #6b7280; font-size: 14px; margin-top: 6px; }
+
+    .result-stats {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .stat-chip {
+      background: #f3f4f6;
+      border-radius: 10px;
+      padding: 10px 18px;
+      text-align: center;
+    }
+
+    .stat-chip .val { font-size: 22px; font-weight: 700; color: #111827; }
+    .stat-chip .lbl { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+
+    .result-list {
+      list-style: none;
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+
+    .result-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 11px 16px;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 14px;
+    }
+
+    .result-list li:last-child { border-bottom: none; }
+    .result-list li.perfect .word { color: #059669; font-weight: 600; }
+    .result-list li.struggled .word { color: #dc2626; }
+    .result-list .tries { font-size: 12px; color: #9ca3af; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
+
+    .btn-outline {
+      background: transparent;
+      color: #6366f1;
+      border: 2px solid #6366f1;
+      margin-top: 10px;
+    }
+
+    .btn-outline:hover { background: #f5f3ff; }
+
+    /* ── Phase visibility ── */
+    [data-phase] { display: none; }
+    [data-phase].active { display: block; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Upload -->
+  <div data-phase="upload" class="card active">
+    <div class="card-title">📚 단어 테스트</div>
+    <div class="card-sub">단어장 사진을 업로드하면 음성으로 테스트합니다</div>
+
+    <div class="drop-zone" id="drop-zone">
+      <div class="icon">🖼️</div>
+      <p><strong>클릭하거나 사진을 드래그</strong>하세요</p>
+      <p>JPEG · PNG · WebP 지원</p>
+      <img id="preview-img" alt="미리보기" />
+    </div>
+    <input type="file" id="file-input" accept="image/*" style="display:none" />
+
+    <button class="btn btn-primary" id="analyze-btn" style="margin-top:20px" disabled>
+      단어 추출하기
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div data-phase="loading" class="card">
+    <div class="spinner"></div>
+    <p class="loading-text">사진에서 단어를 분석하는 중...</p>
+  </div>
+
+  <!-- Word list confirm -->
+  <div data-phase="wordlist" class="card">
+    <div class="card-title">추출된 단어</div>
+    <div class="card-sub">아래 단어로 테스트를 시작합니다</div>
+    <div class="word-count-badge">총 <span id="word-count">0</span>개</div>
+    <ul class="word-list" id="word-list"></ul>
+    <button class="btn btn-primary" id="start-btn" style="margin-top:24px">
+      테스트 시작
+    </button>
+    <button class="btn btn-outline" id="reupload-btn">다른 사진 선택</button>
+  </div>
+
+  <!-- Quiz -->
+  <div data-phase="quiz" class="card">
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-label">
+      <span id="progress-text">0 / 0</span> 완료
+    </div>
+
+    <div class="definition-box">
+      <p class="definition-text" id="definition-text"></p>
+    </div>
+
+    <div class="mic-wrap">
+      <button class="mic-btn" id="mic-btn" title="클릭해서 다시 말하기">🎤</button>
+      <span class="mic-hint" id="mic-hint">정의를 듣고 단어와 스펠링을 말하세요</span>
+    </div>
+
+    <div class="transcript-box" id="transcript-box"></div>
+
+    <div class="feedback-bar" id="feedback-bar"></div>
+  </div>
+
+  <!-- Results -->
+  <div data-phase="results" class="card">
+    <div class="card-title" style="text-align:center;margin-bottom:4px">🎉 완료!</div>
+    <div class="result-score">
+      <div class="big-num" id="res-score">0%</div>
+      <p id="res-desc"></p>
+    </div>
+    <div class="result-stats">
+      <div class="stat-chip">
+        <div class="val" id="res-total">0</div>
+        <div class="lbl">총 단어</div>
+      </div>
+      <div class="stat-chip">
+        <div class="val" id="res-attempts">0</div>
+        <div class="lbl">총 시도</div>
+      </div>
+      <div class="stat-chip">
+        <div class="val" id="res-wrong">0</div>
+        <div class="lbl">틀린 횟수</div>
+      </div>
+    </div>
+    <ul class="result-list" id="result-list"></ul>
+    <button class="btn btn-primary" id="restart-btn">처음부터 다시</button>
+    <button class="btn btn-outline" id="new-photo-btn">새 사진으로</button>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
