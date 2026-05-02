@@ -8,7 +8,7 @@ const S = {
   answerProcessed: false,
 };
 
-const API_KEY_STORAGE = 'anthropic-api-key';
+const API_KEY_STORAGE = 'gemini-api-key';
 
 /* ── Phase management ── */
 function showPhase(name) {
@@ -29,8 +29,8 @@ function init() {
 /* ── API Key ── */
 document.getElementById('save-key-btn').addEventListener('click', () => {
   const key = document.getElementById('api-key-input').value.trim();
-  if (!key.startsWith('sk-ant-')) {
-    alert('올바른 Anthropic API 키를 입력해주세요. (sk-ant- 로 시작)');
+  if (!key.startsWith('AIza')) {
+    alert('올바른 Google Gemini API 키를 입력해주세요. (AIza 로 시작)');
     return;
   }
   localStorage.setItem(API_KEY_STORAGE, key);
@@ -97,7 +97,7 @@ analyzeBtn.addEventListener('click', async () => {
   }
 });
 
-/* ── Claude API (direct browser call) ── */
+/* ── Gemini API (direct browser call) ── */
 async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -114,27 +114,17 @@ async function analyzeImage(file) {
   const base64 = await fileToBase64(file);
   const mediaType = file.type || 'image/jpeg';
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mediaType, data: base64 },
-          },
-          {
-            type: 'text',
-            text: `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: mediaType, data: base64 } },
+            {
+              text: `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
 다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
 [{"word": "example", "definition": "a representative instance"}, ...]
 
@@ -143,20 +133,25 @@ async function analyzeImage(file) {
 - 이미지에 나온 그대로 정의를 유지하세요
 - word 필드: 단어만 (구두점 제외)
 - definition 필드: 전체 설명/정의`,
-          },
-        ],
-      }],
-    }),
-  });
+            },
+          ],
+        }],
+      }),
+    }
+  );
 
   const data = await res.json();
 
   if (data.error) {
-    if (data.error.type === 'authentication_error') throw new Error('API 키가 올바르지 않습니다.');
+    if (data.error.code === 400 || data.error.code === 401 || data.error.code === 403) {
+      throw new Error('API 키가 올바르지 않습니다.');
+    }
     throw new Error(data.error.message);
   }
 
-  const text = data.content[0].text.trim();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error('Gemini 응답을 파싱할 수 없습니다.');
+
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error('단어 목록 파싱 실패');
 

@@ -1,11 +1,11 @@
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenAI } = require('@google/genai');
 const multer = require('multer');
 const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const client = new Anthropic();
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -26,20 +26,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
     const imageData = req.file.buffer.toString('base64');
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: imageData },
-            },
-            {
-              type: 'text',
-              text: `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{
+        parts: [
+          { inlineData: { mimeType: mediaType, data: imageData } },
+          {
+            text: `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
 다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
 [{"word": "example", "definition": "a representative instance"}, ...]
 
@@ -48,13 +41,12 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
 - 이미지에 나온 그대로 정의를 유지하세요
 - word 필드: 단어만 (구두점 제외)
 - definition 필드: 전체 설명/정의`,
-            },
-          ],
-        },
-      ],
+          },
+        ],
+      }],
     });
 
-    const text = response.content[0].text.trim();
+    const text = response.text.trim();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error('응답에서 단어 목록을 파싱할 수 없습니다.');
 
