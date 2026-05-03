@@ -199,8 +199,6 @@ function showWordList(pairs) {
   showPhase('wordlist');
 }
 
-document.getElementById('start-btn').addEventListener('click', () => showPhase('mode'));
-
 document.getElementById('reupload-btn').addEventListener('click', () => {
   selectedFile = null;
   fileInput.value = '';
@@ -211,8 +209,6 @@ document.getElementById('reupload-btn').addEventListener('click', () => {
 });
 
 /* ── Mode selection ── */
-document.getElementById('mode-back-btn').addEventListener('click', () => showPhase('wordlist'));
-
 document.getElementById('mode-definition-btn').addEventListener('click', () => {
   startQuiz(S.words, 'definition');
 });
