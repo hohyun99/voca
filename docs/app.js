@@ -193,7 +193,7 @@ function shuffle(arr) {
 function startQuiz(words) {
   S.words = words;
   S.queue = shuffle([...words]);
-  S.stats = Object.fromEntries(words.map(w => [w.word, { correct: 0, wrong: 0 }]));
+  S.stats = Object.fromEntries(words.map(w => [w.word, { correct: 0, wrong: 0, skipped: false }]));
   showPhase('quiz');
   nextQuestion();
 }
@@ -226,7 +226,7 @@ async function nextQuestion() {
 
 function updateProgress() {
   const total = S.words.length;
-  const done = S.words.filter(w => S.stats[w.word].correct > 0).length;
+  const done = S.words.filter(w => S.stats[w.word].correct > 0 || S.stats[w.word].skipped).length;
   document.getElementById('progress-text').textContent = `${done} / ${total}`;
   document.getElementById('progress-fill').style.width = `${(done / total) * 100}%`;
 }
@@ -340,6 +340,24 @@ function setMicState(state, hint) {
   if (hint) document.getElementById('mic-hint').textContent = hint;
 }
 
+function skipWord() {
+  if (!S.current || S.answerProcessed) return;
+  S.answerProcessed = true;
+  const word = S.current;
+  S.stats[word.word].skipped = true;
+
+  const fb = document.getElementById('feedback-bar');
+  fb.className = 'feedback-bar skipped';
+  fb.textContent = `→ 스킵 — 정답: "${word.word}"`;
+
+  S.current = null;
+  stopRecognition();
+  setMicState('idle', '');
+  setTimeout(nextQuestion, 1600);
+}
+
+document.getElementById('skip-btn').addEventListener('click', skipWord);
+
 document.getElementById('mic-btn').addEventListener('click', () => {
   if (S.recognition) {
     stopRecognition();
@@ -399,32 +417,66 @@ function processAnswer(transcript) {
   }
 }
 
+/* ── Fanfare ── */
+function playFanfare() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const sequence = [
+    { freq: 523.25, start: 0,    dur: 0.12 },
+    { freq: 659.25, start: 0.13, dur: 0.12 },
+    { freq: 783.99, start: 0.26, dur: 0.12 },
+    { freq: 1046.50,start: 0.39, dur: 0.45 },
+    { freq: 783.99, start: 0.85, dur: 0.10 },
+    { freq: 659.25, start: 0.96, dur: 0.10 },
+    { freq: 1046.50,start: 1.07, dur: 0.55 },
+  ];
+  const t = ctx.currentTime;
+  sequence.forEach(({ freq, start, dur }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.18, t + start);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + start + dur);
+    osc.start(t + start);
+    osc.stop(t + start + dur + 0.05);
+  });
+}
+
 /* ── Results ── */
 function showResults() {
-  const total = S.words.length;
-  const totalAttempts = S.words.reduce((s, w) => s + S.stats[w.word].correct + S.stats[w.word].wrong, 0);
-  const totalWrong = S.words.reduce((s, w) => s + S.stats[w.word].wrong, 0);
-  const accuracy = totalAttempts > 0 ? Math.round((total / totalAttempts) * 100) : 100;
+  playFanfare();
+
+  const attempted = S.words.filter(w => !S.stats[w.word].skipped);
+  const skipped = S.words.filter(w => S.stats[w.word].skipped);
+  const totalAttempts = attempted.reduce((s, w) => s + S.stats[w.word].correct + S.stats[w.word].wrong, 0);
+  const totalWrong = attempted.reduce((s, w) => s + S.stats[w.word].wrong, 0);
+  const accuracy = totalAttempts > 0 ? Math.round((attempted.length / totalAttempts) * 100) : 100;
 
   document.getElementById('res-score').textContent = accuracy + '%';
   document.getElementById('res-desc').textContent =
-    accuracy === 100 ? '모든 단어를 한 번에 맞혔습니다!' :
+    accuracy === 100 && skipped.length === 0 ? '모든 단어를 한 번에 맞혔습니다!' :
     accuracy >= 80 ? '훌륭합니다!' :
     accuracy >= 60 ? '잘 했어요, 계속 연습하세요!' : '다시 한번 도전해봐요!';
-  document.getElementById('res-total').textContent = total;
+  document.getElementById('res-total').textContent = S.words.length;
   document.getElementById('res-attempts').textContent = totalAttempts;
   document.getElementById('res-wrong').textContent = totalWrong;
+  document.getElementById('res-skipped').textContent = skipped.length;
 
   const ul = document.getElementById('result-list');
-  ul.innerHTML = S.words
-    .sort((a, b) => S.stats[b.word].wrong - S.stats[a.word].wrong)
-    .map(w => {
-      const s = S.stats[w.word];
-      const cls = s.wrong === 0 ? 'perfect' : 'struggled';
-      const tries = s.wrong === 0 ? '완벽!' : `${s.wrong}번 틀림`;
-      return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${tries}</span></li>`;
-    })
-    .join('');
+  ul.innerHTML = [
+    ...attempted.sort((a, b) => S.stats[b.word].wrong - S.stats[a.word].wrong),
+    ...skipped,
+  ].map(w => {
+    const s = S.stats[w.word];
+    if (s.skipped) {
+      return `<li class="skipped-item"><span class="word">${w.word}</span><span class="tries">스킵</span></li>`;
+    }
+    const cls = s.wrong === 0 ? 'perfect' : 'struggled';
+    const tries = s.wrong === 0 ? '완벽!' : `${s.wrong}번 틀림`;
+    return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${tries}</span></li>`;
+  }).join('');
 
   showPhase('results');
 }

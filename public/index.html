@@ -312,6 +312,24 @@
 
     .btn-outline:hover { background: #f5f3ff; }
 
+    .btn-skip {
+      background: transparent;
+      color: #9ca3af;
+      border: 2px solid #e5e7eb;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .btn-skip:hover { background: #f9fafb; border-color: #d1d5db; }
+
+    .feedback-bar.skipped {
+      display: block;
+      background: #fef9c3;
+      color: #854d0e;
+    }
+
+    .result-list li.skipped-item .word { color: #9ca3af; }
+    .result-list li.skipped-item .tries { color: #9ca3af; font-style: italic; }
+
     /* ── Phase visibility ── */
     [data-phase] { display: none; }
     [data-phase].active { display: block; }
@@ -377,6 +395,7 @@
     <div class="transcript-box" id="transcript-box"></div>
 
     <div class="feedback-bar" id="feedback-bar"></div>
+    <button class="btn btn-skip" id="skip-btn">모르겠어요 (스킵)</button>
   </div>
 
   <!-- Results -->
@@ -398,6 +417,10 @@
       <div class="stat-chip">
         <div class="val" id="res-wrong">0</div>
         <div class="lbl">틀린 횟수</div>
+      </div>
+      <div class="stat-chip">
+        <div class="val" id="res-skipped">0</div>
+        <div class="lbl">스킵</div>
       </div>
     </div>
     <ul class="result-list" id="result-list"></ul>
