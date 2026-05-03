@@ -27,7 +27,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     const imageData = req.file.buffer.toString('base64');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.0-flash-lite',
       contents: [{
         parts: [
           { inlineData: { mimeType: mediaType, data: imageData } },
