@@ -32,17 +32,15 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         parts: [
           { inlineData: { mimeType: mediaType, data: imageData } },
           {
-            text: `이 이미지에서 영어 단어 정보를 모두 추출하세요.
-다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
-[{"word": "example", "definition": "a representative instance", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
+            text: `You are an OCR assistant. Extract vocabulary entries from this image.
+Return ONLY a JSON array with no other text:
+[{"word": "...", "definition": "...", "synonyms": [...], "antonyms": [...]}, ...]
 
-규칙:
-- 이미지에 보이는 모든 단어 항목을 포함하세요
-- word 필드: 표제 단어만 (구두점 제외)
-- definition 필드: 해당 단어의 뜻/정의
-- synonyms 필드: 이미지에서 "synonyms:" 또는 "Synonyms:" 레이블 뒤에 나열된 단어들을 모두 포함 (없으면 빈 배열 [])
-- antonyms 필드: 이미지에서 "antonyms:" 또는 "Antonyms:" 레이블 뒤에 나열된 단어들을 모두 포함 (없으면 빈 배열 [])
-- synonyms와 antonyms는 이미지에 명시된 단어들만 포함하고, 임의로 추가하지 마세요`,
+STRICT RULES — do NOT deviate:
+- "synonyms": copy ONLY the exact words visually printed after the label "synonyms:" in the image. If the label is absent, use [].
+- "antonyms": copy ONLY the exact words visually printed after the label "antonyms:" in the image. If the label is absent, use [].
+- DO NOT infer, generate, or add ANY synonyms or antonyms that are not literally written in the image.
+- DO NOT use your own knowledge. Treat this as pure text extraction from the image.`,
           },
         ],
       }],
