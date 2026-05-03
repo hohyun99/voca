@@ -146,12 +146,12 @@ async function analyzeImage(file) {
 [{"word": "example", "definition": "a representative instance", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
 
 규칙:
-- 이미지에 보이는 모든 단어 정보를 포함하세요
-- 이미지에 나온 그대로 정보를 유지하세요
-- word 필드: 단어만 (구두점 제외)
-- definition 필드: 전체 설명/정의
-- synonyms 필드: 이미지에 표시된 유의어 목록 (없으면 빈 배열 [])
-- antonyms 필드: 이미지에 표시된 반의어 목록 (없으면 빈 배열 [])`,
+- 이미지에 보이는 모든 단어 항목을 포함하세요
+- word 필드: 표제 단어만 (구두점 제외)
+- definition 필드: 해당 단어의 뜻/정의
+- synonyms 필드: 이미지에서 "synonyms:" 또는 "Synonyms:" 레이블 뒤에 나열된 단어들을 모두 포함 (없으면 빈 배열 [])
+- antonyms 필드: 이미지에서 "antonyms:" 또는 "Antonyms:" 레이블 뒤에 나열된 단어들을 모두 포함 (없으면 빈 배열 [])
+- synonyms와 antonyms는 이미지에 명시된 단어들만 포함하고, 임의로 추가하지 마세요`,
             },
           ],
         }],
