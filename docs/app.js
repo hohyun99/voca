@@ -1,3 +1,5 @@
+let _nextTimer = null;
+
 /* ── State ── */
 const S = {
   words: [],
@@ -258,6 +260,7 @@ function startQuiz(words, mode) {
 }
 
 async function nextQuestion() {
+  if (_nextTimer) { clearTimeout(_nextTimer); _nextTimer = null; }
   stopRecognition();
   speechSynthesis.cancel();
 
@@ -459,7 +462,7 @@ function processAnswer(transcript) {
     fb.textContent = '✓ 정답!';
     S.current = null;
     setMicState('idle', '');
-    setTimeout(nextQuestion, 1400);
+    _nextTimer = setTimeout(nextQuestion, 1400);
   } else {
     S.stats[word.word].wrong++;
     fb.className = 'feedback-bar wrong';
@@ -468,31 +471,36 @@ function processAnswer(transcript) {
     const pos = S.queue.length < 2 ? S.queue.length : Math.floor(Math.random() * (S.queue.length - 1)) + 1;
     S.queue.splice(pos, 0, word);
 
-    S.current = null;
     setMicState('idle', '');
-    setTimeout(nextQuestion, 2600);
+    _nextTimer = setTimeout(() => { S.current = null; nextQuestion(); }, 2600);
   }
 }
 
 function skipWord() {
-  if (!S.current || S.answerProcessed) return;
-  S.answerProcessed = true;
-  const word = S.current;
+  const wordToSkip = S.current;
+  if (!wordToSkip) return;
+
+  if (_nextTimer) { clearTimeout(_nextTimer); _nextTimer = null; }
+  stopRecognition();
+  speechSynthesis.cancel();
 
   if (S.mode === 'synonym') {
-    S.doneItems++;
+    if (!S.answerProcessed) S.doneItems++;
+    const idx = S.queue.findIndex(item => item.word === wordToSkip.word && item.hint === wordToSkip.hint);
+    if (idx !== -1) S.queue.splice(idx, 1);
   } else {
-    S.stats[word.word].skipped = true;
+    S.stats[wordToSkip.word].skipped = true;
+    S.queue = S.queue.filter(item => item.word !== wordToSkip.word);
   }
+
+  S.answerProcessed = true;
+  S.current = null;
 
   const fb = document.getElementById('feedback-bar');
   fb.className = 'feedback-bar skipped';
-  fb.textContent = `→ 스킵 — 정답: "${word.word}"`;
-
-  S.current = null;
-  stopRecognition();
+  fb.textContent = `→ 스킵 — 정답: "${wordToSkip.word}"`;
   setMicState('idle', '');
-  setTimeout(nextQuestion, 1600);
+  _nextTimer = setTimeout(nextQuestion, 1400);
 }
 
 document.getElementById('skip-btn').addEventListener('click', skipWord);
