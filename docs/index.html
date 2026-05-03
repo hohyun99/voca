@@ -215,6 +215,7 @@
       line-height: 1.6;
       text-align: center;
       color: #111827;
+      white-space: pre-wrap;
     }
 
     .mic-wrap {
@@ -451,10 +452,11 @@
     <div class="drop-zone" id="drop-zone">
       <div class="icon">🖼️</div>
       <p><strong>클릭하거나 사진을 드래그</strong>하세요</p>
-      <p>JPEG · PNG · WebP 지원</p>
+      <p>JPEG · PNG · WebP · 여러 장 선택 가능</p>
       <img id="preview-img" alt="미리보기" />
+      <p id="file-count" style="margin-top:8px;color:#6366f1;font-weight:600;font-size:14px;"></p>
     </div>
-    <input type="file" id="file-input" accept="image/*" style="display:none" />
+    <input type="file" id="file-input" accept="image/*" multiple style="display:none" />
 
     <button class="btn btn-primary" id="analyze-btn" style="margin-top:20px" disabled>
       단어 추출하기

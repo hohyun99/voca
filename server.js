@@ -32,15 +32,17 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         parts: [
           { inlineData: { mimeType: mediaType, data: imageData } },
           {
-            text: `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
+            text: `이 이미지에서 영어 단어 정보를 모두 추출하세요.
 다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
-[{"word": "example", "definition": "a representative instance"}, ...]
+[{"word": "example", "definition": "a representative instance", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
 
 규칙:
-- 이미지에 보이는 모든 단어-정의 쌍을 포함하세요
-- 이미지에 나온 그대로 정의를 유지하세요
+- 이미지에 보이는 모든 단어 정보를 포함하세요
+- 이미지에 나온 그대로 정보를 유지하세요
 - word 필드: 단어만 (구두점 제외)
-- definition 필드: 전체 설명/정의`,
+- definition 필드: 전체 설명/정의
+- synonyms 필드: 이미지에 표시된 유의어 목록 (없으면 빈 배열 [])
+- antonyms 필드: 이미지에 표시된 반의어 목록 (없으면 빈 배열 [])`,
           },
         ],
       }],
@@ -58,38 +60,6 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     res.json({ pairs });
   } catch (err) {
     console.error('Analyze error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/synonyms', express.json(), async (req, res) => {
-  const { words } = req.body;
-  if (!Array.isArray(words) || words.length === 0) {
-    return res.status(400).json({ error: '단어 목록이 필요합니다.' });
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{
-        parts: [{
-          text: `For each of the following English words, provide 1-2 synonyms and 1-2 antonyms (only if they clearly exist).
-Return ONLY a JSON array with no other text:
-[{"word": "example", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
-
-Words: ${words.join(', ')}`,
-        }],
-      }],
-    });
-
-    const text = response.text.trim();
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('응답 파싱 실패');
-
-    const data = JSON.parse(jsonMatch[0]);
-    res.json({ data });
-  } catch (err) {
-    console.error('Synonyms error:', err);
     res.status(500).json({ error: err.message });
   }
 });

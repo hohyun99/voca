@@ -1,4 +1,5 @@
 let _nextTimer = null;
+let selectedFiles = [];
 
 /* ── State ── */
 const S = {
@@ -9,7 +10,6 @@ const S = {
   recognition: null,
   answerProcessed: false,
   mode: 'definition',
-  synonymData: {},
   totalItems: 0,
   doneItems: 0,
 };
@@ -30,8 +30,7 @@ const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const analyzeBtn = document.getElementById('analyze-btn');
 const previewImg = document.getElementById('preview-img');
-
-let selectedFile = null;
+const fileCountEl = document.getElementById('file-count');
 
 dropZone.addEventListener('click', () => fileInput.click());
 
@@ -45,44 +44,58 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) setFile(file);
+  if (e.dataTransfer.files.length) setFiles(e.dataTransfer.files);
 });
 
 fileInput.addEventListener('change', e => {
-  if (e.target.files[0]) setFile(e.target.files[0]);
+  if (e.target.files.length) setFiles(e.target.files);
 });
 
-function setFile(file) {
-  selectedFile = file;
+function setFiles(files) {
+  selectedFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+  if (!selectedFiles.length) return;
   analyzeBtn.disabled = false;
+
   const reader = new FileReader();
   reader.onload = ev => {
     previewImg.src = ev.target.result;
     previewImg.style.display = 'block';
   };
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(selectedFiles[0]);
+
+  fileCountEl.textContent = selectedFiles.length > 1 ? `${selectedFiles.length}장 선택됨` : '';
 }
 
 analyzeBtn.addEventListener('click', async () => {
-  if (!selectedFile) return;
+  if (!selectedFiles.length) return;
   showPhase('loading');
 
   try {
-    const formData = new FormData();
-    formData.append('image', selectedFile);
-
-    const res = await fetch('/api/analyze', { method: 'POST', body: formData });
-    const data = await res.json();
-
-    if (data.error) throw new Error(data.error);
-
-    showWordList(data.pairs);
+    const results = await Promise.all(selectedFiles.map(analyzeFile));
+    const seen = new Set();
+    const allPairs = [];
+    results.flat().forEach(pair => {
+      const key = pair.word.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        allPairs.push(pair);
+      }
+    });
+    showWordList(allPairs);
   } catch (err) {
     alert('분석 실패: ' + err.message);
     showPhase('upload');
   }
 });
+
+async function analyzeFile(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+  const res = await fetch('/api/analyze', { method: 'POST', body: formData });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.pairs;
+}
 
 /* ── Word list ── */
 function showWordList(pairs) {
@@ -90,9 +103,12 @@ function showWordList(pairs) {
   document.getElementById('word-count').textContent = pairs.length;
 
   const ul = document.getElementById('word-list');
-  ul.innerHTML = pairs
-    .map(p => `<li><strong>${p.word}</strong>: ${p.definition}</li>`)
-    .join('');
+  ul.innerHTML = pairs.map(p => {
+    let extra = '';
+    if (p.synonyms?.length) extra += `<span style="color:#059669"> 유의어: ${p.synonyms.join(', ')}</span>`;
+    if (p.antonyms?.length) extra += `<span style="color:#dc2626"> 반의어: ${p.antonyms.join(', ')}</span>`;
+    return `<li><strong>${p.word}</strong>: ${p.definition}${extra ? '<br><small>' + extra + '</small>' : ''}</li>`;
+  }).join('');
 
   showPhase('wordlist');
 }
@@ -100,10 +116,11 @@ function showWordList(pairs) {
 document.getElementById('reupload-btn').addEventListener('click', resetUpload);
 
 function resetUpload() {
-  selectedFile = null;
+  selectedFiles = [];
   fileInput.value = '';
   previewImg.style.display = 'none';
   previewImg.src = '';
+  fileCountEl.textContent = '';
   analyzeBtn.disabled = true;
   showPhase('upload');
 }
@@ -113,36 +130,17 @@ document.getElementById('mode-definition-btn').addEventListener('click', () => {
   startQuiz(S.words, 'definition');
 });
 
-document.getElementById('mode-synonym-btn').addEventListener('click', async () => {
-  showPhase('loading');
-  try {
-    await fetchSynonyms(S.words);
-    startQuiz(S.words, 'synonym');
-  } catch (err) {
-    alert('유의어/반의어 로딩 실패: ' + err.message);
-    showPhase('mode');
+document.getElementById('mode-synonym-btn').addEventListener('click', () => {
+  const hasSynonyms = S.words.some(w => w.synonyms?.length || w.antonyms?.length);
+  if (!hasSynonyms) {
+    alert('이미지에서 유의어/반의어를 찾을 수 없습니다.\n뜻 맞추기 모드를 이용해주세요.');
+    return;
   }
+  startQuiz(S.words, 'synonym');
 });
 
-async function fetchSynonyms(words) {
-  const res = await fetch('/api/synonyms', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ words: words.map(w => w.word) }),
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  S.synonymData = Object.fromEntries(data.data.map(d => [d.word, d]));
-}
-
 function buildSynonymQueue(words) {
-  const items = [];
-  words.forEach(w => {
-    const data = S.synonymData[w.word] || { synonyms: [], antonyms: [] };
-    (data.synonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'synonym' }));
-    (data.antonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'antonym' }));
-  });
-  return shuffle(items);
+  return shuffle(words.filter(w => w.synonyms?.length || w.antonyms?.length));
 }
 
 /* ── Quiz ── */
@@ -183,9 +181,18 @@ async function nextQuestion() {
 
   let displayText, speakText;
   if (S.mode === 'synonym') {
-    const isAntonym = S.current.hintType === 'antonym';
-    displayText = (isAntonym ? '반의어: ' : '유의어: ') + S.current.hint;
-    speakText = (isAntonym ? 'An antonym is: ' : 'A synonym is: ') + S.current.hint;
+    const lines = [];
+    const spoken = [];
+    if (S.current.synonyms?.length) {
+      lines.push('유의어: ' + S.current.synonyms.join(', '));
+      spoken.push('Synonyms: ' + S.current.synonyms.join(', '));
+    }
+    if (S.current.antonyms?.length) {
+      lines.push('반의어: ' + S.current.antonyms.join(', '));
+      spoken.push('Antonyms: ' + S.current.antonyms.join(', '));
+    }
+    displayText = lines.join('\n');
+    speakText = spoken.join('. ');
   } else {
     displayText = S.current.definition;
     speakText = S.current.definition;
@@ -281,9 +288,7 @@ function startListening() {
 
     for (const result of event.results) {
       if (result.isFinal) {
-        for (let i = 0; i < result.length; i++) {
-          finalText += result[i].transcript + ' ';
-        }
+        for (let i = 0; i < result.length; i++) finalText += result[i].transcript + ' ';
       } else {
         interim += result[0].transcript;
       }
@@ -299,11 +304,11 @@ function startListening() {
   };
 
   S.recognition.onerror = e => {
-    if (e.error === 'no-speech') {
-      setMicState('idle', '음성이 감지되지 않았습니다. 마이크를 클릭해 다시 시도하세요.');
-    } else {
-      setMicState('idle', '오류 발생: ' + e.error);
-    }
+    setMicState('idle',
+      e.error === 'no-speech'
+        ? '음성이 감지되지 않았습니다. 마이크를 클릭해 다시 시도하세요.'
+        : '오류 발생: ' + e.error
+    );
     S.recognition = null;
   };
 
@@ -313,9 +318,7 @@ function startListening() {
       S.answerProcessed = true;
       processAnswer(transcript);
     }
-    if (!S.answerProcessed) {
-      setMicState('idle', '마이크를 클릭해 다시 시도하세요.');
-    }
+    if (!S.answerProcessed) setMicState('idle', '마이크를 클릭해 다시 시도하세요.');
     S.recognition = null;
   };
 
@@ -410,7 +413,7 @@ function skipWord() {
 
   if (S.mode === 'synonym') {
     if (!S.answerProcessed) S.doneItems++;
-    const idx = S.queue.findIndex(item => item.word === wordToSkip.word && item.hint === wordToSkip.hint);
+    const idx = S.queue.findIndex(item => item.word === wordToSkip.word);
     if (idx !== -1) S.queue.splice(idx, 1);
   } else {
     S.stats[wordToSkip.word].skipped = true;
@@ -473,14 +476,16 @@ function showResults() {
     document.getElementById('res-attempts').textContent = totalCorrect;
 
     const ul = document.getElementById('result-list');
-    ul.innerHTML = S.words.map(w => {
-      const s = S.stats[w.word];
-      const cls = s.correct > 0 && s.wrong === 0 ? 'perfect' : s.correct > 0 ? 'struggled' : 'struggled';
-      const detail = s.correct > 0
-        ? `${s.correct}개 정답${s.wrong > 0 ? ` / ${s.wrong}번 틀림` : ''}`
-        : s.wrong > 0 ? `${s.wrong}번 틀림` : '스킵';
-      return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${detail}</span></li>`;
-    }).join('');
+    ul.innerHTML = S.words
+      .filter(w => w.synonyms?.length || w.antonyms?.length)
+      .map(w => {
+        const s = S.stats[w.word];
+        const cls = s.correct > 0 && s.wrong === 0 ? 'perfect' : 'struggled';
+        const detail = s.correct > 0
+          ? `${s.correct}개 정답${s.wrong > 0 ? ` / ${s.wrong}번 틀림` : ''}`
+          : s.wrong > 0 ? `${s.wrong}번 틀림` : '스킵';
+        return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${detail}</span></li>`;
+      }).join('');
   } else {
     const attempted = S.words.filter(w => !S.stats[w.word].skipped);
     const skipped = S.words.filter(w => S.stats[w.word].skipped);

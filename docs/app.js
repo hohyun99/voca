@@ -1,4 +1,5 @@
 let _nextTimer = null;
+let selectedFiles = [];
 
 /* ── State ── */
 const S = {
@@ -9,7 +10,6 @@ const S = {
   recognition: null,
   answerProcessed: false,
   mode: 'definition',
-  synonymData: {},
   totalItems: 0,
   doneItems: 0,
 };
@@ -57,8 +57,7 @@ const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const analyzeBtn = document.getElementById('analyze-btn');
 const previewImg = document.getElementById('preview-img');
-
-let selectedFile = null;
+const fileCountEl = document.getElementById('file-count');
 
 dropZone.addEventListener('click', () => fileInput.click());
 
@@ -72,31 +71,43 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) setFile(file);
+  if (e.dataTransfer.files.length) setFiles(e.dataTransfer.files);
 });
 
 fileInput.addEventListener('change', e => {
-  if (e.target.files[0]) setFile(e.target.files[0]);
+  if (e.target.files.length) setFiles(e.target.files);
 });
 
-function setFile(file) {
-  selectedFile = file;
+function setFiles(files) {
+  selectedFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+  if (!selectedFiles.length) return;
   analyzeBtn.disabled = false;
+
   const reader = new FileReader();
   reader.onload = ev => {
     previewImg.src = ev.target.result;
     previewImg.style.display = 'block';
   };
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(selectedFiles[0]);
+
+  fileCountEl.textContent = selectedFiles.length > 1 ? `${selectedFiles.length}장 선택됨` : '';
 }
 
 analyzeBtn.addEventListener('click', async () => {
-  if (!selectedFile) return;
+  if (!selectedFiles.length) return;
   showPhase('loading');
   try {
-    const pairs = await analyzeImage(selectedFile);
-    showWordList(pairs);
+    const results = await Promise.all(selectedFiles.map(analyzeImage));
+    const seen = new Set();
+    const allPairs = [];
+    results.flat().forEach(pair => {
+      const key = pair.word.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        allPairs.push(pair);
+      }
+    });
+    showWordList(allPairs);
   } catch (err) {
     alert('분석 실패: ' + err.message);
     showPhase('upload');
@@ -113,20 +124,38 @@ async function fileToBase64(file) {
   });
 }
 
-async function geminiRequest(prompt, base64Image, mediaType) {
+async function analyzeImage(file) {
   const apiKey = localStorage.getItem(API_KEY_STORAGE);
   if (!apiKey) throw new Error('API 키가 없습니다.');
 
-  const parts = [];
-  if (base64Image) parts.push({ inline_data: { mime_type: mediaType, data: base64Image } });
-  parts.push({ text: prompt });
+  const base64 = await fileToBase64(file);
+  const mediaType = file.type || 'image/jpeg';
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }] }),
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: mediaType, data: base64 } },
+            {
+              text: `이 이미지에서 영어 단어 정보를 모두 추출하세요.
+다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
+[{"word": "example", "definition": "a representative instance", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
+
+규칙:
+- 이미지에 보이는 모든 단어 정보를 포함하세요
+- 이미지에 나온 그대로 정보를 유지하세요
+- word 필드: 단어만 (구두점 제외)
+- definition 필드: 전체 설명/정의
+- synonyms 필드: 이미지에 표시된 유의어 목록 (없으면 빈 배열 [])
+- antonyms 필드: 이미지에 표시된 반의어 목록 (없으면 빈 배열 [])`,
+            },
+          ],
+        }],
+      }),
     }
   );
 
@@ -141,26 +170,6 @@ async function geminiRequest(prompt, base64Image, mediaType) {
 
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
   if (!text) throw new Error('Gemini 응답을 파싱할 수 없습니다.');
-  return text;
-}
-
-async function analyzeImage(file) {
-  const base64 = await fileToBase64(file);
-  const mediaType = file.type || 'image/jpeg';
-
-  const text = await geminiRequest(
-    `이 이미지에서 영어 단어와 설명/정의 쌍을 모두 추출하세요.
-다른 텍스트 없이 아래 형식의 JSON 배열만 반환하세요:
-[{"word": "example", "definition": "a representative instance"}, ...]
-
-규칙:
-- 이미지에 보이는 모든 단어-정의 쌍을 포함하세요
-- 이미지에 나온 그대로 정의를 유지하세요
-- word 필드: 단어만 (구두점 제외)
-- definition 필드: 전체 설명/정의`,
-    base64,
-    mediaType
-  );
 
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error('단어 목록 파싱 실패');
@@ -170,40 +179,26 @@ async function analyzeImage(file) {
   return pairs;
 }
 
-async function fetchSynonyms(words) {
-  const wordList = words.map(w => w.word).join(', ');
-
-  const text = await geminiRequest(
-    `For each of the following English words, provide 1-2 synonyms and 1-2 antonyms (only if they clearly exist).
-Return ONLY a JSON array with no other text:
-[{"word": "example", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
-
-Words: ${wordList}`,
-    null,
-    null
-  );
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('유의어 목록 파싱 실패');
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  S.synonymData = Object.fromEntries(parsed.map(d => [d.word, d]));
-}
-
 /* ── Word list ── */
 function showWordList(pairs) {
   S.words = pairs;
   document.getElementById('word-count').textContent = pairs.length;
   const ul = document.getElementById('word-list');
-  ul.innerHTML = pairs.map(p => `<li><strong>${p.word}</strong>: ${p.definition}</li>`).join('');
+  ul.innerHTML = pairs.map(p => {
+    let extra = '';
+    if (p.synonyms?.length) extra += `<span style="color:#059669"> 유의어: ${p.synonyms.join(', ')}</span>`;
+    if (p.antonyms?.length) extra += `<span style="color:#dc2626"> 반의어: ${p.antonyms.join(', ')}</span>`;
+    return `<li><strong>${p.word}</strong>: ${p.definition}${extra ? '<br><small>' + extra + '</small>' : ''}</li>`;
+  }).join('');
   showPhase('wordlist');
 }
 
 document.getElementById('reupload-btn').addEventListener('click', () => {
-  selectedFile = null;
+  selectedFiles = [];
   fileInput.value = '';
   previewImg.style.display = 'none';
   previewImg.src = '';
+  fileCountEl.textContent = '';
   analyzeBtn.disabled = true;
   showPhase('upload');
 });
@@ -213,25 +208,17 @@ document.getElementById('mode-definition-btn').addEventListener('click', () => {
   startQuiz(S.words, 'definition');
 });
 
-document.getElementById('mode-synonym-btn').addEventListener('click', async () => {
-  showPhase('loading');
-  try {
-    await fetchSynonyms(S.words);
-    startQuiz(S.words, 'synonym');
-  } catch (err) {
-    alert('유의어/반의어 로딩 실패: ' + err.message);
-    showPhase('mode');
+document.getElementById('mode-synonym-btn').addEventListener('click', () => {
+  const hasSynonyms = S.words.some(w => w.synonyms?.length || w.antonyms?.length);
+  if (!hasSynonyms) {
+    alert('이미지에서 유의어/반의어를 찾을 수 없습니다.\n뜻 맞추기 모드를 이용해주세요.');
+    return;
   }
+  startQuiz(S.words, 'synonym');
 });
 
 function buildSynonymQueue(words) {
-  const items = [];
-  words.forEach(w => {
-    const data = S.synonymData[w.word] || { synonyms: [], antonyms: [] };
-    (data.synonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'synonym' }));
-    (data.antonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'antonym' }));
-  });
-  return shuffle(items);
+  return shuffle(words.filter(w => w.synonyms?.length || w.antonyms?.length));
 }
 
 /* ── Quiz ── */
@@ -272,9 +259,18 @@ async function nextQuestion() {
 
   let displayText, speakText;
   if (S.mode === 'synonym') {
-    const isAntonym = S.current.hintType === 'antonym';
-    displayText = (isAntonym ? '반의어: ' : '유의어: ') + S.current.hint;
-    speakText = (isAntonym ? 'An antonym is: ' : 'A synonym is: ') + S.current.hint;
+    const lines = [];
+    const spoken = [];
+    if (S.current.synonyms?.length) {
+      lines.push('유의어: ' + S.current.synonyms.join(', '));
+      spoken.push('Synonyms: ' + S.current.synonyms.join(', '));
+    }
+    if (S.current.antonyms?.length) {
+      lines.push('반의어: ' + S.current.antonyms.join(', '));
+      spoken.push('Antonyms: ' + S.current.antonyms.join(', '));
+    }
+    displayText = lines.join('\n');
+    speakText = spoken.join('. ');
   } else {
     displayText = S.current.definition;
     speakText = S.current.definition;
@@ -482,7 +478,7 @@ function skipWord() {
 
   if (S.mode === 'synonym') {
     if (!S.answerProcessed) S.doneItems++;
-    const idx = S.queue.findIndex(item => item.word === wordToSkip.word && item.hint === wordToSkip.hint);
+    const idx = S.queue.findIndex(item => item.word === wordToSkip.word);
     if (idx !== -1) S.queue.splice(idx, 1);
   } else {
     S.stats[wordToSkip.word].skipped = true;
@@ -545,14 +541,16 @@ function showResults() {
     document.getElementById('res-attempts').textContent = totalCorrect;
 
     const ul = document.getElementById('result-list');
-    ul.innerHTML = S.words.map(w => {
-      const s = S.stats[w.word];
-      const cls = s.correct > 0 && s.wrong === 0 ? 'perfect' : 'struggled';
-      const detail = s.correct > 0
-        ? `${s.correct}개 정답${s.wrong > 0 ? ` / ${s.wrong}번 틀림` : ''}`
-        : s.wrong > 0 ? `${s.wrong}번 틀림` : '스킵';
-      return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${detail}</span></li>`;
-    }).join('');
+    ul.innerHTML = S.words
+      .filter(w => w.synonyms?.length || w.antonyms?.length)
+      .map(w => {
+        const s = S.stats[w.word];
+        const cls = s.correct > 0 && s.wrong === 0 ? 'perfect' : 'struggled';
+        const detail = s.correct > 0
+          ? `${s.correct}개 정답${s.wrong > 0 ? ` / ${s.wrong}번 틀림` : ''}`
+          : s.wrong > 0 ? `${s.wrong}번 틀림` : '스킵';
+        return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${detail}</span></li>`;
+      }).join('');
   } else {
     const attempted = S.words.filter(w => !S.stats[w.word].skipped);
     const skipped = S.words.filter(w => S.stats[w.word].skipped);
@@ -591,10 +589,11 @@ function showResults() {
 
 document.getElementById('restart-btn').addEventListener('click', () => startQuiz(S.words, S.mode));
 document.getElementById('new-photo-btn').addEventListener('click', () => {
-  selectedFile = null;
+  selectedFiles = [];
   fileInput.value = '';
   previewImg.style.display = 'none';
   previewImg.src = '';
+  fileCountEl.textContent = '';
   analyzeBtn.disabled = true;
   showPhase('upload');
 });
