@@ -6,6 +6,10 @@ const S = {
   stats: {},
   recognition: null,
   answerProcessed: false,
+  mode: 'definition',
+  synonymData: {},
+  totalItems: 0,
+  doneItems: 0,
 };
 
 /* ── Phase management ── */
@@ -91,7 +95,7 @@ function showWordList(pairs) {
   showPhase('wordlist');
 }
 
-document.getElementById('start-btn').addEventListener('click', () => startQuiz(S.words));
+document.getElementById('start-btn').addEventListener('click', () => showPhase('mode'));
 document.getElementById('reupload-btn').addEventListener('click', resetUpload);
 
 function resetUpload() {
@@ -101,6 +105,45 @@ function resetUpload() {
   previewImg.src = '';
   analyzeBtn.disabled = true;
   showPhase('upload');
+}
+
+/* ── Mode selection ── */
+document.getElementById('mode-back-btn').addEventListener('click', () => showPhase('wordlist'));
+
+document.getElementById('mode-definition-btn').addEventListener('click', () => {
+  startQuiz(S.words, 'definition');
+});
+
+document.getElementById('mode-synonym-btn').addEventListener('click', async () => {
+  showPhase('loading');
+  try {
+    await fetchSynonyms(S.words);
+    startQuiz(S.words, 'synonym');
+  } catch (err) {
+    alert('유의어/반의어 로딩 실패: ' + err.message);
+    showPhase('mode');
+  }
+});
+
+async function fetchSynonyms(words) {
+  const res = await fetch('/api/synonyms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ words: words.map(w => w.word) }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  S.synonymData = Object.fromEntries(data.data.map(d => [d.word, d]));
+}
+
+function buildSynonymQueue(words) {
+  const items = [];
+  words.forEach(w => {
+    const data = S.synonymData[w.word] || { synonyms: [], antonyms: [] };
+    (data.synonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'synonym' }));
+    (data.antonyms || []).forEach(hint => items.push({ ...w, hint, hintType: 'antonym' }));
+  });
+  return shuffle(items);
 }
 
 /* ── Quiz ── */
@@ -113,10 +156,13 @@ function shuffle(arr) {
   return a;
 }
 
-function startQuiz(words) {
+function startQuiz(words, mode) {
   S.words = words;
-  S.queue = shuffle([...words]);
+  S.mode = mode;
   S.stats = Object.fromEntries(words.map(w => [w.word, { correct: 0, wrong: 0, skipped: false }]));
+  S.queue = mode === 'synonym' ? buildSynonymQueue(words) : shuffle([...words]);
+  S.totalItems = S.queue.length;
+  S.doneItems = 0;
   showPhase('quiz');
   nextQuestion();
 }
@@ -134,12 +180,23 @@ async function nextQuestion() {
   S.answerProcessed = false;
 
   updateProgress();
-  setDefinition(S.current.definition);
+
+  let displayText, speakText;
+  if (S.mode === 'synonym') {
+    const isAntonym = S.current.hintType === 'antonym';
+    displayText = (isAntonym ? '반의어: ' : '유의어: ') + S.current.hint;
+    speakText = (isAntonym ? 'An antonym is: ' : 'A synonym is: ') + S.current.hint;
+  } else {
+    displayText = S.current.definition;
+    speakText = S.current.definition;
+  }
+
+  setDefinition(displayText);
   clearFeedback();
   clearTranscript();
   setMicState('idle', '읽어드리는 중...');
 
-  await speakDefinition(S.current.definition);
+  await speakDefinition(speakText);
 
   if (S.current) {
     setMicState('idle', '단어와 스펠링을 말하세요 (마이크 클릭으로 재시도)');
@@ -148,10 +205,16 @@ async function nextQuestion() {
 }
 
 function updateProgress() {
-  const total = S.words.length;
-  const done = S.words.filter(w => S.stats[w.word].correct > 0 || S.stats[w.word].skipped).length;
+  let total, done;
+  if (S.mode === 'synonym') {
+    total = S.totalItems;
+    done = S.doneItems;
+  } else {
+    total = S.words.length;
+    done = S.words.filter(w => S.stats[w.word].correct > 0 || S.stats[w.word].skipped).length;
+  }
   document.getElementById('progress-text').textContent = `${done} / ${total}`;
-  document.getElementById('progress-fill').style.width = `${(done / total) * 100}%`;
+  document.getElementById('progress-fill').style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
 }
 
 function setDefinition(text) {
@@ -274,24 +337,6 @@ function setMicState(state, hint) {
   if (hint) hintEl.textContent = hint;
 }
 
-function skipWord() {
-  if (!S.current || S.answerProcessed) return;
-  S.answerProcessed = true;
-  const word = S.current;
-  S.stats[word.word].skipped = true;
-
-  const fb = document.getElementById('feedback-bar');
-  fb.className = 'feedback-bar skipped';
-  fb.textContent = `→ 스킵 — 정답: "${word.word}"`;
-
-  S.current = null;
-  stopRecognition();
-  setMicState('idle', '');
-  setTimeout(nextQuestion, 1600);
-}
-
-document.getElementById('skip-btn').addEventListener('click', skipWord);
-
 document.getElementById('mic-btn').addEventListener('click', () => {
   if (S.recognition) {
     stopRecognition();
@@ -313,18 +358,14 @@ function checkAnswer(transcript, target) {
   const t = normalize(transcript);
   const w = normalize(target);
 
-  // Word appears directly in transcript
   if (t === w || t.includes(w)) return true;
 
-  // Handle multi-word targets with minor boundary differences
   const tWords = t.split(/\s+/);
   if (tWords.includes(w)) return true;
 
-  // Spelled-out: "a p p l e" or "A-P-P-L-E" -> "apple"
   const letters = t.replace(/[^a-z ]/g, '').trim().split(/\s+/);
   if (letters.every(l => l.length === 1) && letters.join('') === w) return true;
 
-  // Hyphenated spelling: "a-p-p-l-e"
   const hyphenLetters = t.replace(/\s/g, '').split('-');
   if (hyphenLetters.every(l => l.length === 1) && hyphenLetters.join('') === w) return true;
 
@@ -340,6 +381,7 @@ function processAnswer(transcript) {
 
   if (isCorrect) {
     S.stats[word.word].correct++;
+    if (S.mode === 'synonym') S.doneItems++;
     fb.className = 'feedback-bar correct';
     fb.textContent = '✓ 정답!';
     S.current = null;
@@ -350,7 +392,6 @@ function processAnswer(transcript) {
     fb.className = 'feedback-bar wrong';
     fb.textContent = `✗ 틀렸습니다 — 정답: "${word.word}"`;
 
-    // Reinsert word at a random non-immediate position
     const pos = S.queue.length < 2 ? S.queue.length : Math.floor(Math.random() * (S.queue.length - 1)) + 1;
     S.queue.splice(pos, 0, word);
 
@@ -359,6 +400,29 @@ function processAnswer(transcript) {
     setTimeout(nextQuestion, 2600);
   }
 }
+
+function skipWord() {
+  if (!S.current || S.answerProcessed) return;
+  S.answerProcessed = true;
+  const word = S.current;
+
+  if (S.mode === 'synonym') {
+    S.doneItems++;
+  } else {
+    S.stats[word.word].skipped = true;
+  }
+
+  const fb = document.getElementById('feedback-bar');
+  fb.className = 'feedback-bar skipped';
+  fb.textContent = `→ 스킵 — 정답: "${word.word}"`;
+
+  S.current = null;
+  stopRecognition();
+  setMicState('idle', '');
+  setTimeout(nextQuestion, 1600);
+}
+
+document.getElementById('skip-btn').addEventListener('click', skipWord);
 
 /* ── Fanfare ── */
 function playFanfare() {
@@ -391,38 +455,62 @@ function playFanfare() {
 function showResults() {
   playFanfare();
 
-  const attempted = S.words.filter(w => !S.stats[w.word].skipped);
-  const skipped = S.words.filter(w => S.stats[w.word].skipped);
-  const totalAttempts = attempted.reduce((s, w) => s + S.stats[w.word].correct + S.stats[w.word].wrong, 0);
-  const totalWrong = attempted.reduce((s, w) => s + S.stats[w.word].wrong, 0);
-  const accuracy = totalAttempts > 0 ? Math.round((attempted.length / totalAttempts) * 100) : 100;
+  let accuracy, totalWrong, totalSkippedCount;
+
+  if (S.mode === 'synonym') {
+    const totalCorrect = S.words.reduce((acc, w) => acc + S.stats[w.word].correct, 0);
+    totalWrong = S.words.reduce((acc, w) => acc + S.stats[w.word].wrong, 0);
+    totalSkippedCount = S.doneItems - totalCorrect;
+    accuracy = (totalCorrect + totalWrong) > 0 ? Math.round(totalCorrect / (totalCorrect + totalWrong) * 100) : 100;
+    document.getElementById('res-total-lbl').textContent = '총 문제';
+    document.getElementById('res-attempts-lbl').textContent = '맞은 수';
+    document.getElementById('res-total').textContent = S.totalItems;
+    document.getElementById('res-attempts').textContent = totalCorrect;
+
+    const ul = document.getElementById('result-list');
+    ul.innerHTML = S.words.map(w => {
+      const s = S.stats[w.word];
+      const cls = s.correct > 0 && s.wrong === 0 ? 'perfect' : s.correct > 0 ? 'struggled' : 'struggled';
+      const detail = s.correct > 0
+        ? `${s.correct}개 정답${s.wrong > 0 ? ` / ${s.wrong}번 틀림` : ''}`
+        : s.wrong > 0 ? `${s.wrong}번 틀림` : '스킵';
+      return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${detail}</span></li>`;
+    }).join('');
+  } else {
+    const attempted = S.words.filter(w => !S.stats[w.word].skipped);
+    const skipped = S.words.filter(w => S.stats[w.word].skipped);
+    const totalAttempts = attempted.reduce((s, w) => s + S.stats[w.word].correct + S.stats[w.word].wrong, 0);
+    totalWrong = attempted.reduce((s, w) => s + S.stats[w.word].wrong, 0);
+    totalSkippedCount = skipped.length;
+    accuracy = totalAttempts > 0 ? Math.round(attempted.length / totalAttempts * 100) : 100;
+    document.getElementById('res-total-lbl').textContent = '총 단어';
+    document.getElementById('res-attempts-lbl').textContent = '총 시도';
+    document.getElementById('res-total').textContent = S.words.length;
+    document.getElementById('res-attempts').textContent = totalAttempts;
+
+    const ul = document.getElementById('result-list');
+    ul.innerHTML = [
+      ...attempted.sort((a, b) => S.stats[b.word].wrong - S.stats[a.word].wrong),
+      ...skipped,
+    ].map(w => {
+      const s = S.stats[w.word];
+      if (s.skipped) return `<li class="skipped-item"><span class="word">${w.word}</span><span class="tries">스킵</span></li>`;
+      const cls = s.wrong === 0 ? 'perfect' : 'struggled';
+      const tries = s.wrong === 0 ? '완벽!' : `${s.wrong}번 틀림`;
+      return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${tries}</span></li>`;
+    }).join('');
+  }
 
   document.getElementById('res-score').textContent = accuracy + '%';
   document.getElementById('res-desc').textContent =
-    accuracy === 100 && skipped.length === 0 ? '모든 단어를 한 번에 맞혔습니다!' :
+    accuracy === 100 && totalSkippedCount === 0 ? '완벽합니다! 모든 문제를 맞혔습니다!' :
     accuracy >= 80 ? '훌륭합니다!' :
     accuracy >= 60 ? '잘 했어요, 계속 연습하세요!' : '다시 한번 도전해봐요!';
-  document.getElementById('res-total').textContent = S.words.length;
-  document.getElementById('res-attempts').textContent = totalAttempts;
   document.getElementById('res-wrong').textContent = totalWrong;
-  document.getElementById('res-skipped').textContent = skipped.length;
-
-  const ul = document.getElementById('result-list');
-  ul.innerHTML = [
-    ...attempted.sort((a, b) => S.stats[b.word].wrong - S.stats[a.word].wrong),
-    ...skipped,
-  ].map(w => {
-    const s = S.stats[w.word];
-    if (s.skipped) {
-      return `<li class="skipped-item"><span class="word">${w.word}</span><span class="tries">스킵</span></li>`;
-    }
-    const cls = s.wrong === 0 ? 'perfect' : 'struggled';
-    const tries = s.wrong === 0 ? '완벽!' : `${s.wrong}번 틀림`;
-    return `<li class="${cls}"><span class="word">${w.word}</span><span class="tries">${tries}</span></li>`;
-  }).join('');
+  document.getElementById('res-skipped').textContent = totalSkippedCount;
 
   showPhase('results');
 }
 
-document.getElementById('restart-btn').addEventListener('click', () => startQuiz(S.words));
+document.getElementById('restart-btn').addEventListener('click', () => startQuiz(S.words, S.mode));
 document.getElementById('new-photo-btn').addEventListener('click', resetUpload);

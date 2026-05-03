@@ -62,6 +62,38 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
   }
 });
 
+app.post('/api/synonyms', express.json(), async (req, res) => {
+  const { words } = req.body;
+  if (!Array.isArray(words) || words.length === 0) {
+    return res.status(400).json({ error: '단어 목록이 필요합니다.' });
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{
+        parts: [{
+          text: `For each of the following English words, provide 1-2 synonyms and 1-2 antonyms (only if they clearly exist).
+Return ONLY a JSON array with no other text:
+[{"word": "example", "synonyms": ["instance", "sample"], "antonyms": ["counterexample"]}, ...]
+
+Words: ${words.join(', ')}`,
+        }],
+      }],
+    });
+
+    const text = response.text.trim();
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('응답 파싱 실패');
+
+    const data = JSON.parse(jsonMatch[0]);
+    res.json({ data });
+  } catch (err) {
+    console.error('Synonyms error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`서버 실행 중: http://localhost:${PORT}`);
