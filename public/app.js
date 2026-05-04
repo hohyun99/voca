@@ -195,7 +195,7 @@ async function nextQuestion() {
     speakText = spoken.join('. ');
   } else {
     displayText = S.current.definition;
-    speakText = S.current.definition;
+    speakText = definitionOnly(S.current.definition);
   }
 
   setDefinition(displayText);
@@ -236,6 +236,13 @@ function clearFeedback() {
   const fb = document.getElementById('feedback-bar');
   fb.className = 'feedback-bar';
   fb.textContent = '';
+}
+
+function definitionOnly(text) {
+  return text
+    .replace(/\s*[\(（]?\s*(?:ex\.?|examples?|e\.g\.)[:\s].*$/gi, '')
+    .replace(/\s*(?:for example|such as)[,:\s].*$/gi, '')
+    .trim();
 }
 
 /* ── TTS ── */
