@@ -146,6 +146,7 @@ Return ONLY a JSON array with no other text:
 [{"word": "...", "definition": "...", "synonyms": [...], "antonyms": [...]}, ...]
 
 STRICT RULES — do NOT deviate:
+- "definition": extract ONLY the meaning/explanation of the word. Do NOT include example sentences (lines starting with "Ex:", "e.g.", or any sentence demonstrating usage).
 - "synonyms": copy ONLY the exact words visually printed after the label "synonyms:" in the image. If the label is absent, use [].
 - "antonyms": copy ONLY the exact words visually printed after the label "antonyms:" in the image. If the label is absent, use [].
 - DO NOT infer, generate, or add ANY synonyms or antonyms that are not literally written in the image.
