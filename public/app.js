@@ -100,11 +100,9 @@ async function analyzeFile(file) {
 /* ── Saved Lists ── */
 const STORAGE_KEY = 'voca-lists';
 
-function saveWordList(words) {
+function saveWordList(name, words) {
   const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  const now = new Date();
-  const name = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  lists.unshift({ id: now.getTime(), name, words });
+  lists.unshift({ id: Date.now(), name, words });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(lists));
   renderSavedLists();
 }
@@ -118,7 +116,7 @@ function deleteSavedList(id) {
 function loadSavedList(id) {
   const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   const entry = lists.find(l => l.id === id);
-  if (entry) showWordList(entry.words, false);
+  if (entry) showWordList(entry.words);
 }
 
 function renderSavedLists() {
@@ -139,10 +137,14 @@ function renderSavedLists() {
 }
 
 /* ── Word list ── */
-function showWordList(pairs, save = true) {
-  if (save) saveWordList(pairs);
+function showWordList(pairs) {
   S.words = pairs;
   document.getElementById('word-count').textContent = pairs.length;
+
+  const now = new Date();
+  const defaultName = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  document.getElementById('list-name-input').value = defaultName;
+  document.getElementById('save-feedback').style.display = 'none';
 
   const ul = document.getElementById('word-list');
   ul.innerHTML = pairs.map(p => {
@@ -154,6 +156,14 @@ function showWordList(pairs, save = true) {
 
   showPhase('wordlist');
 }
+
+document.getElementById('save-list-btn').addEventListener('click', () => {
+  const name = document.getElementById('list-name-input').value.trim() || '단어장';
+  saveWordList(name, S.words);
+  const fb = document.getElementById('save-feedback');
+  fb.style.display = 'block';
+  setTimeout(() => { fb.style.display = 'none'; }, 2000);
+});
 
 document.getElementById('reupload-btn').addEventListener('click', resetUpload);
 
