@@ -97,8 +97,50 @@ async function analyzeFile(file) {
   return data.pairs;
 }
 
+/* ── Saved Lists ── */
+const STORAGE_KEY = 'voca-lists';
+
+function saveWordList(words) {
+  const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  const now = new Date();
+  const name = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  lists.unshift({ id: now.getTime(), name, words });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(lists));
+  renderSavedLists();
+}
+
+function deleteSavedList(id) {
+  const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(lists.filter(l => l.id !== id)));
+  renderSavedLists();
+}
+
+function loadSavedList(id) {
+  const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  const entry = lists.find(l => l.id === id);
+  if (entry) showWordList(entry.words, false);
+}
+
+function renderSavedLists() {
+  const lists = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  const section = document.getElementById('saved-section');
+  const container = document.getElementById('saved-list');
+  if (!lists.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  container.innerHTML = lists.map(l => `
+    <div class="saved-item">
+      <span class="saved-name">📚 ${l.name}<span class="saved-meta">(${l.words.length}개)</span></span>
+      <div style="display:flex;gap:6px">
+        <button class="load-btn" onclick="loadSavedList(${l.id})">불러오기</button>
+        <button class="del-btn" onclick="deleteSavedList(${l.id})">🗑</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 /* ── Word list ── */
-function showWordList(pairs) {
+function showWordList(pairs, save = true) {
+  if (save) saveWordList(pairs);
   S.words = pairs;
   document.getElementById('word-count').textContent = pairs.length;
 
@@ -526,8 +568,17 @@ function showResults() {
   document.getElementById('res-wrong').textContent = totalWrong;
   document.getElementById('res-skipped').textContent = totalSkippedCount;
 
+  const hasWrong = S.words.some(w => S.stats[w.word].wrong > 0);
+  document.getElementById('retry-wrong-btn').style.display = hasWrong ? 'block' : 'none';
+
   showPhase('results');
 }
 
 document.getElementById('restart-btn').addEventListener('click', () => startQuiz(S.words, S.mode));
+document.getElementById('retry-wrong-btn').addEventListener('click', () => {
+  const wrongWords = S.words.filter(w => S.stats[w.word].wrong > 0);
+  if (wrongWords.length) startQuiz(wrongWords, S.mode);
+});
 document.getElementById('new-photo-btn').addEventListener('click', resetUpload);
+
+renderSavedLists();

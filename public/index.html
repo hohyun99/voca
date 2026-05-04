@@ -322,6 +322,42 @@
     }
     .btn-skip:hover { background: #f9fafb; border-color: #d1d5db; }
 
+    /* ── Saved lists ── */
+    .saved-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      gap: 8px;
+    }
+    .saved-item .saved-name { flex: 1; color: #374151; font-weight: 500; }
+    .saved-item .saved-meta { font-size: 12px; color: #9ca3af; margin-left: 4px; }
+    .load-btn {
+      font-size: 13px;
+      padding: 5px 12px;
+      border: 1.5px solid #6366f1;
+      border-radius: 8px;
+      background: transparent;
+      color: #6366f1;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .load-btn:hover { background: #f5f3ff; }
+    .del-btn {
+      font-size: 14px;
+      padding: 4px 8px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: #9ca3af;
+      border-radius: 6px;
+    }
+    .del-btn:hover { background: #fee2e2; color: #dc2626; }
+
     .feedback-bar.skipped {
       display: block;
       background: #fef9c3;
@@ -375,6 +411,11 @@
     <button class="btn btn-primary" id="analyze-btn" style="margin-top:20px" disabled>
       단어 추출하기
     </button>
+
+    <div id="saved-section" style="display:none;margin-top:24px">
+      <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px">저장된 단어장</div>
+      <div id="saved-list"></div>
+    </div>
   </div>
 
   <!-- Loading -->
@@ -458,6 +499,7 @@
     </div>
     <ul class="result-list" id="result-list"></ul>
     <button class="btn btn-primary" id="restart-btn">처음부터 다시</button>
+    <button class="btn btn-outline" id="retry-wrong-btn" style="display:none">틀린 단어만 다시 테스트</button>
     <button class="btn btn-outline" id="new-photo-btn">새 사진으로</button>
   </div>
 
